@@ -1,13 +1,13 @@
 {
   "name": "heroku-http-proxy",
   "version": "1.0.0",
-  "description": "Simple authenticated HTTP proxy for Heroku",
+  "description": "Authenticated HTTP proxy for Heroku",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "engines": {
-    "node": "18.x || 20.x"
+    "node": "20.x"
   },
   "dependencies": {
     "express": "^4.21.0",
