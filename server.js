@@ -10,7 +10,7 @@ const PASSWORD = process.env.PROXY_PASSWORD || 'sliit';
 
 console.log(`🚀 Proxy starting with username: ${USERNAME}`);
 
-// Basic Auth
+// Basic Authentication
 function authMiddleware(req, res, next) {
   const user = basicAuth(req);
   if (!user || user.name !== USERNAME || user.pass !== PASSWORD) {
@@ -22,46 +22,48 @@ function authMiddleware(req, res, next) {
 
 app.use(authMiddleware);
 
-// Better Proxy Configuration
-app.use('/', createProxyMiddleware({
-  // This is the most reliable way for a generic HTTP proxy
-  target: 'http://www.google.com',   // dummy target - will be overridden
+// === FIXED PROXY CONFIGURATION ===
+app.use(createProxyMiddleware({
+  target: 'http://example.com',     // Dummy target - required by the library
   changeOrigin: true,
   secure: true,
   xfwd: true,
-  followRedirects: true,             // important for many sites
+  followRedirects: true,
   timeout: 60000,
   proxyTimeout: 60000,
 
-  // Dynamic target based on the original Host header
+  // This router function is the key fix
   router: (req) => {
-    let protocol = 'https:';   // default to HTTPS (safer for most modern sites)
-    const host = req.headers.host || req.hostname;
-
-    // Try to detect protocol from X-Forwarded-Proto (Heroku sends this)
-    if (req.headers['x-forwarded-proto'] === 'http') {
-      protocol = 'http:';
+    const host = req.headers.host;
+    
+    // IMPORTANT: Skip proxying requests to our own Heroku domain to prevent loops
+    if (host && (host.includes('herokuapp.com') || host.includes('kaveeshainduwara.lk'))) {
+      return null;   // Let Express handle it (for /health etc.)
     }
 
+    // Determine protocol (prefer HTTPS)
+    const protocol = (req.headers['x-forwarded-proto'] === 'http') ? 'http:' : 'https:';
+    
     return `${protocol}//${host}`;
   },
 
-  onProxyReq: (proxyReq, req, res) => {
-    // Clean problematic headers
+  onProxyReq: (proxyReq, req) => {
     proxyReq.removeHeader('proxy-connection');
     proxyReq.removeHeader('proxy-authorization');
-    proxyReq.removeHeader('connection');   // sometimes helps
+    proxyReq.removeHeader('connection');
   },
 
   onError: (err, req, res) => {
-    console.error('Proxy Error for', req.method, req.url, ':', err.message);
-    res.status(502).send(`502 Bad Gateway - ${err.message}`);
+    console.error(`Proxy Error [${req.method} ${req.url}]:`, err.message);
+    if (!res.headersSent) {
+      res.status(502).send('502 Bad Gateway - Proxy Error');
+    }
   }
 }));
 
-// Health check
+// Health check (must come AFTER the proxy middleware)
 app.get('/health', (req, res) => {
-  res.send('✅ Heroku HTTP Proxy is running (Fixed version)');
+  res.send('✅ Heroku HTTP Proxy is running (Loop-fixed version)');
 });
 
 app.listen(PORT, () => {
