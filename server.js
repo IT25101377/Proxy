@@ -10,7 +10,7 @@ const PASSWORD = process.env.PROXY_PASSWORD || 'sliit';
 
 console.log(`🚀 Proxy starting with username: ${USERNAME}`);
 
-// Basic Authentication
+// ====================== BASIC AUTH ======================
 function authMiddleware(req, res, next) {
   const user = basicAuth(req);
   if (!user || user.name !== USERNAME || user.pass !== PASSWORD) {
@@ -22,29 +22,33 @@ function authMiddleware(req, res, next) {
 
 app.use(authMiddleware);
 
-// === FIXED PROXY CONFIGURATION ===
+// ====================== HEALTH CHECK ======================
+app.get('/health', (req, res) => {
+  res.send('✅ Heroku HTTP Proxy is running - Ready for use');
+});
+
+// ====================== MAIN PROXY ======================
+// This must come AFTER the health check
 app.use(createProxyMiddleware({
-  target: 'http://example.com',     // Dummy target - required by the library
+  target: 'https://www.google.com',   // Dummy target (required)
   changeOrigin: true,
   secure: true,
   xfwd: true,
   followRedirects: true,
-  timeout: 60000,
-  proxyTimeout: 60000,
+  timeout: 90000,
+  proxyTimeout: 90000,
 
-  // This router function is the key fix
+  // Key fix: Only proxy if it's NOT a request to our own domain
   router: (req) => {
-    const host = req.headers.host;
-    
-    // IMPORTANT: Skip proxying requests to our own Heroku domain to prevent loops
-    if (host && (host.includes('herokuapp.com') || host.includes('kaveeshainduwara.lk'))) {
-      return null;   // Let Express handle it (for /health etc.)
+    const host = req.headers.host || '';
+
+    // Prevent self-loop: skip proxying requests to our Heroku app
+    if (host.includes('herokuapp.com') || host.includes('kaveeshainduwara.lk')) {
+      return null;                    // Let Express handle it (health check etc.)
     }
 
-    // Determine protocol (prefer HTTPS)
-    const protocol = (req.headers['x-forwarded-proto'] === 'http') ? 'http:' : 'https:';
-    
-    return `${protocol}//${host}`;
+    // Forward to the original requested host (HTTPS by default)
+    return `https://${host}`;
   },
 
   onProxyReq: (proxyReq, req) => {
@@ -56,15 +60,10 @@ app.use(createProxyMiddleware({
   onError: (err, req, res) => {
     console.error(`Proxy Error [${req.method} ${req.url}]:`, err.message);
     if (!res.headersSent) {
-      res.status(502).send('502 Bad Gateway - Proxy Error');
+      res.status(502).send('502 Bad Gateway');
     }
   }
 }));
-
-// Health check (must come AFTER the proxy middleware)
-app.get('/health', (req, res) => {
-  res.send('✅ Heroku HTTP Proxy is running (Loop-fixed version)');
-});
 
 app.listen(PORT, () => {
   console.log(`✅ Proxy listening on internal port ${PORT}`);
